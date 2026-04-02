@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
+FRONTEND_URL = "https://decodedspeak.com"
 
 [[d1_databases]]
 binding = "DB"
