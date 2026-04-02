@@ -7,14 +7,16 @@ export const authRoutes = new Hono()
 authRoutes.get('/google', async (c) => {
   const env = c.env
   const state = nanoid(16)
-  const origin = c.req.header('origin') || `https://${c.req.header('host')}`
+
+  // Worker's own origin (for the OAuth callback — must match Google Console)
+  const workerOrigin = `https://${c.req.header('host')}`
 
   // Store state in KV (10 min expiry) to prevent CSRF
   await env.KV.put(`oauth_state:${state}`, '1', { expirationTtl: 600 })
 
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
-    redirect_uri: `${origin}/api/auth/google/callback`,
+    redirect_uri: `${workerOrigin}/api/auth/google/callback`,
     response_type: 'code',
     scope: 'openid email profile',
     state,
@@ -30,24 +32,28 @@ authRoutes.get('/google/callback', async (c) => {
   const env = c.env
   const { code, state, error } = c.req.query()
 
-  // Determine frontend origin
-  const host = c.req.header('host') || ''
-  const proto = host.includes('localhost') ? 'http' : 'https'
-  const origin = `${proto}://${host}`
+  // Worker origin (for token exchange — must match what was sent to Google)
+  const workerOrigin = `https://${c.req.header('host')}`
+
+  // Frontend origin — where we redirect the user after login
+  // FRONTEND_URL env var takes priority; fallback to worker origin (local dev)
+  const frontendOrigin = env.FRONTEND_URL
+    ? env.FRONTEND_URL.replace(/\/$/, '')
+    : workerOrigin
 
   if (error || !code || !state) {
-    return c.redirect(`${origin}/?auth_error=access_denied`)
+    return c.redirect(`${frontendOrigin}/?auth_error=access_denied`)
   }
 
   // Validate state
   const storedState = await env.KV.get(`oauth_state:${state}`)
   if (!storedState) {
-    return c.redirect(`${origin}/?auth_error=invalid_state`)
+    return c.redirect(`${frontendOrigin}/?auth_error=invalid_state`)
   }
   await env.KV.delete(`oauth_state:${state}`)
 
   try {
-    // Exchange code for tokens
+    // Exchange code for tokens — redirect_uri must match what was sent in Step 1
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -55,7 +61,7 @@ authRoutes.get('/google/callback', async (c) => {
         code,
         client_id: env.GOOGLE_CLIENT_ID,
         client_secret: env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: `${origin}/api/auth/google/callback`,
+        redirect_uri: `${workerOrigin}/api/auth/google/callback`,
         grant_type: 'authorization_code'
       })
     })
@@ -114,11 +120,11 @@ authRoutes.get('/google/callback', async (c) => {
     const jwtToken = await signJWT(payload, env.JWT_SECRET)
     await env.KV.put(`jwt:${user.id}`, jwtToken, { expirationTtl: 30 * 24 * 3600 })
 
-    // Redirect to frontend with token in fragment (never in query string)
-    return c.redirect(`${origin}/?jwt=${jwtToken}`)
+    // Redirect to frontend with JWT
+    return c.redirect(`${frontendOrigin}/?jwt=${jwtToken}`)
   } catch (e) {
     console.error('OAuth callback error:', e)
-    return c.redirect(`${origin}/?auth_error=server_error`)
+    return c.redirect(`${frontendOrigin}/?auth_error=server_error`)
   }
 })
 
