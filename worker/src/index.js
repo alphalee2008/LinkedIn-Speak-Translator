@@ -5,7 +5,12 @@ import { translateRoute } from './routes/translate.js'
 
 const app = new Hono()
 
-app.use('/*', cors())
+app.use('/*', cors({
+  origin: (origin) => origin, // reflect origin for credentials
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}))
 
 app.get('/', (c) => c.json({ message: 'LinkedIn Speak Translator API' }))
 
