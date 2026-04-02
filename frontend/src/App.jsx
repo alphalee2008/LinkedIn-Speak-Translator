@@ -3,52 +3,93 @@ import Translator from './components/Translator'
 import LoginModal from './components/LoginModal'
 import Header from './components/Header'
 
+const API_BASE = import.meta.env.VITE_API_URL || ''
+
 export default function App() {
   const [user, setUser] = useState(null)
   const [showLogin, setShowLogin] = useState(false)
+  const [authError, setAuthError] = useState('')
 
   useEffect(() => {
-    // Check for magic link token in URL
+    // Check for JWT from Google OAuth redirect (?jwt=...)
     const params = new URLSearchParams(window.location.search)
-    const token = params.get('token')
-    if (token) {
-      verifyToken(token)
-    } else {
-      // Load user from localStorage
-      const saved = localStorage.getItem('lst_user')
-      if (saved) setUser(JSON.parse(saved))
+    const jwt = params.get('jwt')
+    const authErr = params.get('auth_error')
+
+    if (authErr) {
+      setAuthError('Login failed. Please try again.')
+      window.history.replaceState({}, '', '/')
+      return
+    }
+
+    if (jwt) {
+      localStorage.setItem('lst_jwt', jwt)
+      window.history.replaceState({}, '', '/')
+      fetchMe(jwt)
+      return
+    }
+
+    // Load from localStorage
+    const savedJwt = localStorage.getItem('lst_jwt')
+    if (savedJwt) {
+      fetchMe(savedJwt)
     }
   }, [])
 
-  async function verifyToken(token) {
+  async function fetchMe(jwt) {
     try {
-      const res = await fetch('/api/auth/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token })
+      const res = await fetch(`${API_BASE}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${jwt}` }
       })
-      const data = await res.json()
-      if (data.user) {
-        localStorage.setItem('lst_user', JSON.stringify(data.user))
-        localStorage.setItem('lst_jwt', data.jwt)
-        setUser(data.user)
-        window.history.replaceState({}, '', '/')
+      if (res.ok) {
+        const data = await res.json()
+        setUser(data)
+      } else {
+        // JWT invalid/expired
+        localStorage.removeItem('lst_jwt')
       }
     } catch (e) {
-      console.error('Token verification failed', e)
+      console.error('fetchMe error', e)
     }
   }
 
+  function handleLoginClick() {
+    setAuthError('')
+    setShowLogin(true)
+  }
+
   function logout() {
-    localStorage.removeItem('lst_user')
+    const jwt = localStorage.getItem('lst_jwt')
+    if (jwt) {
+      fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${jwt}` }
+      }).catch(() => {})
+    }
     localStorage.removeItem('lst_jwt')
     setUser(null)
   }
 
+  // Called after a successful translation to sync updated quota
+  function updateUserQuota(quota) {
+    if (!quota) return
+    setUser(prev => prev ? { ...prev, ...quota } : prev)
+  }
+
   return (
     <div className="app">
-      <Header user={user} onLogin={() => setShowLogin(true)} onLogout={logout} />
-      <Translator user={user} onLoginRequired={() => setShowLogin(true)} />
+      <Header user={user} onLogin={handleLoginClick} onLogout={logout} />
+      {authError && (
+        <div className="auth-error-banner">
+          {authError}
+          <button onClick={() => setAuthError('')}>×</button>
+        </div>
+      )}
+      <Translator
+        user={user}
+        onLoginRequired={handleLoginClick}
+        onQuotaUpdate={updateUserQuota}
+      />
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
     </div>
   )
