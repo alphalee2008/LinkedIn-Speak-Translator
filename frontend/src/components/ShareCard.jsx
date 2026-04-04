@@ -21,7 +21,7 @@ export default function ShareCard({ input, output, mode, isPro, onClose }) {
         <div className="share-card" ref={cardRef}>
           <div className="share-card-header">
             <span>LinkedIn Speak Translator</span>
-            {!isPro && <span className="watermark">linkedinspeaktranslator.com</span>}
+            {!isPro && <span className="watermark">decodedspeak.com</span>}
           </div>
           <div className="share-card-body">
             <div className="share-original">
@@ -42,7 +42,7 @@ export default function ShareCard({ input, output, mode, isPro, onClose }) {
           </button>
           <button
             className="btn-secondary"
-            onClick={() => navigator.clipboard.writeText(`They said: "${input}"\n\nThey meant: "${output}"\n\nvia linkedinspeaktranslator.com`)}
+            onClick={() => navigator.clipboard.writeText(`They said: "${input}"\n\nThey meant: "${output}"\n\nvia decodedspeak.com`)}
           >
             📋 Copy Text
           </button>
